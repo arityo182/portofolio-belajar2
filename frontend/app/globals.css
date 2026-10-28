@@ -1,0 +1,357 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: "InterVariable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin-wght-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrainsMonoVariable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2");
+}
+
+:root {
+  color-scheme: light;
+
+  --font-inter: "InterVariable";
+  --font-jetbrains-mono: "JetBrainsMonoVariable";
+
+  --color-surface: #f8fafc;
+  --color-surface-raised: #ffffff;
+  --color-surface-subtle: #f1f5f9;
+  --color-surface-inverse: #0f172a;
+
+  --color-content: #0f172a;
+  --color-content-muted: #475569;
+  --color-content-subtle: #64748b;
+  --color-content-inverse: #f8fafc;
+
+  --color-border: #e2e8f0;
+  --color-ring: #2563eb;
+
+  --status-pending-fg: #b45309;
+  --status-pending-bg: #fffbeb;
+  --status-pending-border: #fde68a;
+
+  --status-scoring-fg: #6d28d9;
+  --status-scoring-bg: #f5f3ff;
+  --status-scoring-border: #ddd6fe;
+
+  --status-review-fg: #0e7490;
+  --status-review-bg: #ecfeff;
+  --status-review-border: #a5f3fc;
+
+  --status-approved-fg: #15803d;
+  --status-approved-bg: #f0fdf4;
+  --status-approved-border: #bbf7d0;
+
+  --status-rejected-fg: #b91c1c;
+  --status-rejected-bg: #fef2f2;
+  --status-rejected-border: #fecaca;
+
+  --status-disbursed-fg: #1d4ed8;
+  --status-disbursed-bg: #eff6ff;
+  --status-disbursed-border: #bfdbfe;
+
+  --status-active-fg: #047857;
+  --status-active-bg: #ecfdf5;
+  --status-active-border: #a7f3d0;
+
+  --status-completed-fg: #475569;
+  --status-completed-bg: #f8fafc;
+  --status-completed-border: #cbd5e1;
+
+  --status-defaulted-fg: #991b1b;
+  --status-defaulted-bg: #fef2f2;
+  --status-defaulted-border: #fca5a5;
+
+  --status-overdue-fg: #c2410c;
+  --status-overdue-bg: #fff7ed;
+  --status-overdue-border: #fed7aa;
+}
+
+[data-theme="dark"],
+.dark {
+  color-scheme: dark;
+
+  --color-surface: #070b14;
+  --color-surface-raised: #0f1729;
+  --color-surface-subtle: #172036;
+  --color-surface-inverse: #f8fafc;
+
+  --color-content: #e6ecf5;
+  --color-content-muted: #a6b4c8;
+  --color-content-subtle: #8595ab;
+  --color-content-inverse: #0f172a;
+
+  --color-border: #223049;
+  --color-ring: #60a5fa;
+
+  --status-pending-fg: #fbbf24;
+  --status-pending-bg: rgba(245, 158, 11, 0.12);
+  --status-pending-border: rgba(245, 158, 11, 0.32);
+
+  --status-scoring-fg: #c4b5fd;
+  --status-scoring-bg: rgba(139, 92, 246, 0.14);
+  --status-scoring-border: rgba(139, 92, 246, 0.34);
+
+  --status-review-fg: #67e8f9;
+  --status-review-bg: rgba(6, 182, 212, 0.12);
+  --status-review-border: rgba(6, 182, 212, 0.34);
+
+  --status-approved-fg: #86efac;
+  --status-approved-bg: rgba(34, 197, 94, 0.12);
+  --status-approved-border: rgba(34, 197, 94, 0.34);
+
+  --status-rejected-fg: #fca5a5;
+  --status-rejected-bg: rgba(239, 68, 68, 0.12);
+  --status-rejected-border: rgba(239, 68, 68, 0.34);
+
+  --status-disbursed-fg: #93c5fd;
+  --status-disbursed-bg: rgba(59, 130, 246, 0.14);
+  --status-disbursed-border: rgba(59, 130, 246, 0.36);
+
+  --status-active-fg: #6ee7b7;
+  --status-active-bg: rgba(16, 185, 129, 0.12);
+  --status-active-border: rgba(16, 185, 129, 0.34);
+
+  --status-completed-fg: #cbd5e1;
+  --status-completed-bg: rgba(148, 163, 184, 0.12);
+  --status-completed-border: rgba(148, 163, 184, 0.3);
+
+  --status-defaulted-fg: #fecaca;
+  --status-defaulted-bg: rgba(220, 38, 38, 0.16);
+  --status-defaulted-border: rgba(220, 38, 38, 0.4);
+
+  --status-overdue-fg: #fdba74;
+  --status-overdue-bg: rgba(234, 88, 12, 0.14);
+  --status-overdue-border: rgba(234, 88, 12, 0.36);
+}
+
+* {
+  box-sizing: border-box;
+  border-color: var(--color-border);
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  background-color: var(--color-surface);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background-color: var(--color-surface);
+  color: var(--color-content);
+  font-family: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background-color: rgba(37, 99, 235, 0.2);
+  color: var(--color-content);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 100;
+  transform: translateY(-200%);
+  border-radius: 0.75rem;
+  background-color: #2563eb;
+  padding: 0.75rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #ffffff;
+  box-shadow: 0 12px 32px -8px rgba(15, 23, 42, 0.3);
+  transition: transform 160ms ease-out;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+.numeric {
+  font-family: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.status-pending {
+  color: var(--status-pending-fg);
+  background-color: var(--status-pending-bg);
+  border-color: var(--status-pending-border);
+}
+
+.status-scoring {
+  color: var(--status-scoring-fg);
+  background-color: var(--status-scoring-bg);
+  border-color: var(--status-scoring-border);
+}
+
+.status-review {
+  color: var(--status-review-fg);
+  background-color: var(--status-review-bg);
+  border-color: var(--status-review-border);
+}
+
+.status-approved {
+  color: var(--status-approved-fg);
+  background-color: var(--status-approved-bg);
+  border-color: var(--status-approved-border);
+}
+
+.status-rejected {
+  color: var(--status-rejected-fg);
+  background-color: var(--status-rejected-bg);
+  border-color: var(--status-rejected-border);
+}
+
+.status-disbursed {
+  color: var(--status-disbursed-fg);
+  background-color: var(--status-disbursed-bg);
+  border-color: var(--status-disbursed-border);
+}
+
+.status-active {
+  color: var(--status-active-fg);
+  background-color: var(--status-active-bg);
+  border-color: var(--status-active-border);
+}
+
+.status-completed {
+  color: var(--status-completed-fg);
+  background-color: var(--status-completed-bg);
+  border-color: var(--status-completed-border);
+}
+
+.status-defaulted {
+  color: var(--status-defaulted-fg);
+  background-color: var(--status-defaulted-bg);
+  border-color: var(--status-defaulted-border);
+}
+
+.status-overdue {
+  color: var(--status-overdue-fg);
+  background-color: var(--status-overdue-bg);
+  border-color: var(--status-overdue-border);
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  background-color: var(--color-surface-subtle);
+}
+
+.skeleton::after {
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    rgba(148, 163, 184, 0.18),
+    transparent
+  );
+  animation: shimmer 1.6s infinite;
+  content: "";
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+  background-color: rgba(100, 116, 139, 0.4);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(100, 116, 139, 0.6);
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--color-content);
+  box-shadow: 0 0 0 1000px var(--color-surface-raised) inset;
+  transition: background-color 600000s 0s, color 600000s 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .animate-float {
+    animation: none;
+  }
+}

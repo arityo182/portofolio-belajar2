@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scoring-service
+  namespace: koperasi
+  labels:
+    app: scoring-service
+    app.kubernetes.io/part-of: koperasi-digital
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: scoring-service
+  template:
+    metadata:
+      labels:
+        app: scoring-service
+        app.kubernetes.io/part-of: koperasi-digital
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: scoring-service
+          image: ghcr.io/koperasi-digital/koperasi-scoring-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8083
+              name: http
+          envFrom:
+            - configMapRef:
+                name: koperasi-config
+            - secretRef:
+                name: koperasi-secrets
+          env:
+            - name: PORT
+              value: "8083"
+            - name: DB_HOST
+              value: "postgres"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: "koperasi"
+            - name: DB_USER
+              value: "scoring_user"
+            - name: DB_SCHEMA
+              value: "scoring_schema"
+            - name: DB_CONNECT_ON_STARTUP
+              value: "true"
+            - name: KAFKA_ENABLED
+              value: "true"
+            - name: LOAN_SERVICE_URL
+              value: "http://loan-service:8082"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: koperasi-secrets
+                  key: SCORING_DB_PASSWORD
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8083
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8083
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

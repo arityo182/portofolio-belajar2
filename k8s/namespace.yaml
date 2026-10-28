@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: koperasi
+  labels:
+    app.kubernetes.io/part-of: koperasi-digital
+    pod-security.kubernetes.io/enforce: baseline

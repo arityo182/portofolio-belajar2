@@ -1,0 +1,478 @@
+name: koperasi
+
+x-common-environment: &common-environment
+  TZ: ${TZ:-Asia/Jakarta}
+  SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_LEVEL_APP: ${LOG_LEVEL_APP:-INFO}
+  JAVA_TOOL_OPTIONS: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Duser.timezone=Asia/Jakarta"
+
+x-common-healthcheck: &common-healthcheck
+  interval: 30s
+  timeout: 5s
+  retries: 5
+  start_period: 90s
+
+x-common-logging: &common-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: koperasi-postgres
+    restart: unless-stopped
+    logging: *common-logging
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-koperasi}
+      POSTGRES_USER: ${POSTGRES_USER:-koperasi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-koperasi}
+      TZ: ${TZ:-Asia/Jakarta}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/01-init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - koperasi-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: koperasi-redis
+    restart: unless-stopped
+    logging: *common-logging
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-s3cr3t}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-s3cr3t}
+      TZ: ${TZ:-Asia/Jakarta}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - koperasi-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: koperasi-kafka
+    restart: unless-stopped
+    logging: *common-logging
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+      TZ: ${TZ:-Asia/Jakarta}
+    ports:
+      - "${KAFKA_PORT:-29092}:29092"
+    volumes:
+      - kafka_kraft_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    networks:
+      - koperasi-network
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+      args:
+        SERVICE_NAME: auth-service
+        SERVICE_PORT: 8081
+    image: koperasi/auth-service:local
+    container_name: koperasi-auth-service
+    restart: unless-stopped
+    logging: *common-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      <<: *common-environment
+      SERVER_PORT: 8081
+      DB_URL: "jdbc:postgresql://postgres:5432/${POSTGRES_DB:-koperasi}?currentSchema=auth_schema"
+      DB_USERNAME: auth_user
+      DB_PASSWORD: ${AUTH_DB_PASSWORD:-authP@ss}
+      DB_SCHEMA: auth_schema
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-s3cr3t}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_AUDIT_TOPIC: audit.event.created
+      AUDIT_KAFKA_ENABLED: "true"
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      JWT_ACCESS_TOKEN_TTL: ${JWT_ACCESS_TOKEN_TTL:-900}
+      JWT_REFRESH_TOKEN_TTL: ${JWT_REFRESH_TOKEN_TTL:-604800}
+      JWT_ISSUER: ${JWT_ISSUER:-koperasi-auth}
+      BCRYPT_COST_FACTOR: ${BCRYPT_COST_FACTOR:-12}
+      PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:?PII_ENCRYPTION_KEY must be set in .env}
+      PASSWORD_RESET_LOG_LINK: ${PASSWORD_RESET_LOG_LINK:-true}
+      PASSWORD_RESET_URL: ${PASSWORD_RESET_URL:-https://localhost/reset-password}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://localhost}
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus,metrics
+      MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+    ports:
+      - "${AUTH_PORT:-8081}:8081"
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health/liveness || exit 1"]
+    networks:
+      - koperasi-network
+
+  loan-service:
+    build:
+      context: .
+      dockerfile: services/loan-service/Dockerfile
+      args:
+        SERVICE_NAME: loan-service
+        SERVICE_PORT: 8082
+    image: koperasi/loan-service:local
+    container_name: koperasi-loan-service
+    restart: unless-stopped
+    logging: *common-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      <<: *common-environment
+      SERVER_PORT: 8082
+      DB_URL: "jdbc:postgresql://postgres:5432/${POSTGRES_DB:-koperasi}?currentSchema=loan_schema"
+      DB_USERNAME: loan_user
+      DB_PASSWORD: ${LOAN_DB_PASSWORD:-loanP@ss}
+      DB_SCHEMA: loan_schema
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-s3cr3t}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_CONSUMER_GROUP: loan-service-group
+      SCORING_SERVICE_URL: http://scoring-service:8083
+      PAYMENT_SERVICE_URL: http://payment-service:8084
+      LOAN_DEFAULT_OVERDUE_DAYS: ${LOAN_DEFAULT_OVERDUE_DAYS:-90}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      JWT_ISSUER: ${JWT_ISSUER:-koperasi-auth}
+      INTERNAL_CALLBACK_TOKEN: ${INTERNAL_CALLBACK_TOKEN:?INTERNAL_CALLBACK_TOKEN must be set in .env}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://localhost}
+      # merged notification module
+      WEBSOCKET_ALLOWED_ORIGINS: ${WEBSOCKET_ALLOWED_ORIGINS:-https://localhost}
+      NOTIFICATION_REDIS_FANOUT: ${NOTIFICATION_REDIS_FANOUT:-true}
+      NOTIFICATION_FANOUT_CHANNEL: ${NOTIFICATION_FANOUT_CHANNEL:-notifications:fanout}
+      NOTIFICATION_SSE_HEARTBEAT_MS: ${NOTIFICATION_SSE_HEARTBEAT_MS:-30000}
+      NOTIFICATION_SSE_TIMEOUT_MS: ${NOTIFICATION_SSE_TIMEOUT_MS:-1800000}
+      NOTIFICATION_MAX_PAGE_SIZE: ${NOTIFICATION_MAX_PAGE_SIZE:-100}
+      KAFKA_TOPIC_PATTERN: ${KAFKA_TOPIC_PATTERN:-^(loan\.application\..*|loan\.status\.changed|loan\.defaulted|payment\..*|notification\.send\.requested)$}
+      # merged reporting module (read-only datasource)
+      REPORT_DB_URL: "jdbc:postgresql://postgres:5432/${POSTGRES_DB:-koperasi}?currentSchema=public"
+      REPORT_DB_USERNAME: report_user
+      REPORT_DB_PASSWORD: ${REPORT_DB_PASSWORD:-reportP@ss}
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus,metrics
+      MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+    ports:
+      - "${LOAN_PORT:-8082}:8082"
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8082/actuator/health/liveness || exit 1"]
+    networks:
+      - koperasi-network
+
+  scoring-service:
+    build:
+      context: .
+      dockerfile: services/scoring-service/Dockerfile
+    image: koperasi/scoring-service:local
+    container_name: koperasi-scoring-service
+    restart: unless-stopped
+    logging: *common-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      PORT: 8083
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-koperasi}
+      DB_USER: scoring_user
+      DB_PASSWORD: ${SCORING_DB_PASSWORD:-scoreP@ss}
+      DB_SCHEMA: scoring_schema
+      DB_CONNECT_ON_STARTUP: "true"
+      DB_CONNECT_RETRIES: ${DB_CONNECT_RETRIES:-10}
+      DB_CONNECT_RETRY_DELAY_SECONDS: ${DB_CONNECT_RETRY_DELAY_SECONDS:-2}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-s3cr3t}
+      KAFKA_ENABLED: ${SCORING_KAFKA_ENABLED:-true}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_GROUP_ID: scoring-service-group
+      KAFKA_TOPIC_SCORING_REQUESTED: loan.scoring.requested
+      KAFKA_TOPIC_SCORING_COMPLETED: loan.scoring.completed
+      KAFKA_AUTO_OFFSET_RESET: earliest
+      ML_MODEL_PATH: ${ML_MODEL_PATH:-/app/models/credit_model_v1.0.0.h5}
+      ML_SCALER_PATH: ${ML_SCALER_PATH:-/app/models/scaler.pkl}
+      ML_ENCODER_PATH: ${ML_ENCODER_PATH:-/app/models/encoder.pkl}
+      ML_METADATA_PATH: ${ML_METADATA_PATH:-/app/models/model_metadata.json}
+      MODEL_VERSION: ${MODEL_VERSION:-v1.0.0}
+      MODEL_TRAINED_AT: ${MODEL_TRAINED_AT:-2026-10-01T00:00:00Z}
+      CANARY_TRAFFIC_PCT: ${CANARY_TRAFFIC_PCT:-0}
+      LOAN_SERVICE_URL: http://loan-service:8082
+      SCORING_CALLBACK_PATH: /api/v1/loans/internal/scoring/completed
+      CALLBACK_ENABLED: ${SCORING_CALLBACK_ENABLED:-true}
+      CALLBACK_TIMEOUT_SECONDS: ${CALLBACK_TIMEOUT_SECONDS:-5}
+      CALLBACK_MAX_RETRIES: ${CALLBACK_MAX_RETRIES:-2}
+      INTERNAL_CALLBACK_TOKEN: ${INTERNAL_CALLBACK_TOKEN:?INTERNAL_CALLBACK_TOKEN must be set in .env}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://localhost}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      TZ: ${TZ:-Asia/Jakarta}
+    ports:
+      - "${SCORING_PORT:-8083}:8083"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8083/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    networks:
+      - koperasi-network
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: services/payment-service/Dockerfile
+      args:
+        SERVICE_NAME: payment-service
+        SERVICE_PORT: 8084
+    image: koperasi/payment-service:local
+    container_name: koperasi-payment-service
+    restart: unless-stopped
+    logging: *common-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      loan-service:
+        condition: service_started
+    environment:
+      <<: *common-environment
+      SERVER_PORT: 8084
+      DB_URL: "jdbc:postgresql://postgres:5432/${POSTGRES_DB:-koperasi}?currentSchema=payment_schema"
+      DB_USERNAME: payment_user
+      DB_PASSWORD: ${PAYMENT_DB_PASSWORD:-payP@ss}
+      DB_SCHEMA: payment_schema
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-s3cr3t}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_CONSUMER_GROUP: payment-service-group
+      MIDTRANS_SERVER_KEY: ${MIDTRANS_SERVER_KEY:-}
+      MIDTRANS_CLIENT_KEY: ${MIDTRANS_CLIENT_KEY:-}
+      MIDTRANS_WEBHOOK_SECRET: ${MIDTRANS_WEBHOOK_SECRET:-}
+      MIDTRANS_IS_PRODUCTION: ${MIDTRANS_IS_PRODUCTION:-false}
+      XENDIT_API_KEY: ${XENDIT_API_KEY:-}
+      XENDIT_WEBHOOK_TOKEN: ${XENDIT_WEBHOOK_TOKEN:-}
+      IDEMPOTENCY_TTL_HOURS: ${IDEMPOTENCY_TTL_HOURS:-24}
+      PAYMENT_LOCK_TTL_SECONDS: ${PAYMENT_LOCK_TTL_SECONDS:-15}
+      PAYMENT_RETRY_MAX_ATTEMPTS: ${PAYMENT_RETRY_MAX_ATTEMPTS:-3}
+      PAYMENT_RETRY_BASE_BACKOFF_MS: ${PAYMENT_RETRY_BASE_BACKOFF_MS:-1000}
+      LOAN_SERVICE_URL: http://loan-service:8082
+      INTERNAL_CALLBACK_TOKEN: ${INTERNAL_CALLBACK_TOKEN:?INTERNAL_CALLBACK_TOKEN must be set in .env}
+      MIDTRANS_SNAP_BASE_URL: ${MIDTRANS_SNAP_BASE_URL:-https://app.sandbox.midtrans.com}
+      MIDTRANS_API_BASE_URL: ${MIDTRANS_API_BASE_URL:-https://api.sandbox.midtrans.com}
+      MIDTRANS_BENEFICIARY_NAME: ${MIDTRANS_BENEFICIARY_NAME:-Koperasi Digital}
+      MIDTRANS_BENEFICIARY_ACCOUNT: ${MIDTRANS_BENEFICIARY_ACCOUNT:-0000000000}
+      MIDTRANS_BENEFICIARY_BANK: ${MIDTRANS_BENEFICIARY_BANK:-BCA}
+      XENDIT_BASE_URL: ${XENDIT_BASE_URL:-https://api.xendit.co}
+      XENDIT_BANK_CODE: ${XENDIT_BANK_CODE:-BCA}
+      XENDIT_ACCOUNT_HOLDER_NAME: ${XENDIT_ACCOUNT_HOLDER_NAME:-Koperasi Digital}
+      XENDIT_ACCOUNT_NUMBER: ${XENDIT_ACCOUNT_NUMBER:-0000000000}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      JWT_ISSUER: ${JWT_ISSUER:-koperasi-auth}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://localhost}
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus,metrics
+      MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+    ports:
+      - "${PAYMENT_PORT:-8084}:8084"
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8084/actuator/health/liveness || exit 1"]
+    networks:
+      - koperasi-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api/v1}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-wss://localhost/ws}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://localhost}
+        NEXT_PUBLIC_ENV: ${NEXT_PUBLIC_ENV:-local}
+        NEXT_PUBLIC_LOAN_INSTALLMENT_METHOD: ${NEXT_PUBLIC_LOAN_INSTALLMENT_METHOD:-FLAT}
+    image: koperasi/frontend:local
+    container_name: koperasi-frontend
+    restart: unless-stopped
+    logging: *common-logging
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://localhost/api/v1}
+      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-wss://localhost/ws}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://localhost}
+      NEXT_PUBLIC_MIDTRANS_CLIENT_KEY: ${NEXT_PUBLIC_MIDTRANS_CLIENT_KEY:-}
+      NEXT_PUBLIC_ENV: ${NEXT_PUBLIC_ENV:-local}
+      NEXT_PUBLIC_LOAN_INSTALLMENT_METHOD: ${NEXT_PUBLIC_LOAN_INSTALLMENT_METHOD:-FLAT}
+      TZ: ${TZ:-Asia/Jakarta}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/login >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - koperasi-network
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    image: koperasi/nginx:local
+    container_name: koperasi-nginx
+    restart: unless-stopped
+    logging: *common-logging
+    depends_on:
+      auth-service:
+        condition: service_started
+      loan-service:
+        condition: service_started
+      payment-service:
+        condition: service_started
+      frontend:
+        condition: service_started
+    environment:
+      TZ: ${TZ:-Asia/Jakarta}
+      CERT_DIR: /etc/nginx/certs
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - nginx_certs:/etc/nginx/certs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsSk https://localhost/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - koperasi-network
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: koperasi-prometheus
+    restart: unless-stopped
+    logging: *common-logging
+    depends_on:
+      auth-service:
+        condition: service_started
+      loan-service:
+        condition: service_started
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - koperasi-network
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: koperasi-grafana
+    restart: unless-stopped
+    logging: *common-logging
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3001}
+      TZ: ${TZ:-Asia/Jakarta}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - koperasi-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  kafka_kraft_data:
+  prometheus_data:
+  grafana_data:
+  nginx_certs:
+
+networks:
+  koperasi-network:
+    driver: bridge

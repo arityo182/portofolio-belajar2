@@ -1,0 +1,57 @@
+plugins {
+    id "org.springframework.boot" version "3.4.2" apply false
+    id "io.spring.dependency-management" version "1.1.7" apply false
+    id "org.owasp.dependencycheck" version "10.0.4" apply false
+}
+
+subprojects {
+    apply plugin: "java"
+    apply plugin: "jacoco"
+    apply plugin: "org.owasp.dependencycheck"
+
+    group = "com.koperasi"
+    version = "1.0.0"
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
+    }
+
+    repositories {
+        mavenCentral()
+    }
+
+    configurations {
+        compileOnly {
+            extendsFrom annotationProcessor
+        }
+    }
+
+    tasks.named("test") {
+        useJUnitPlatform()
+        include "**/*Test.class"
+        include "**/*IT.class"
+        // Docker Engine 29+ removed API versions below 1.40; Testcontainers defaults to 1.32.
+        systemProperty "api.version", System.getenv("DOCKER_API_VERSION") ?: "1.41"
+        testLogging {
+            events "passed", "skipped", "failed"
+            exceptionFormat "full"
+        }
+        finalizedBy tasks.named("jacocoTestReport")
+    }
+
+    dependencyCheck {
+        failBuildOnCVSS = 9.0
+        formats = ["HTML", "JSON"]
+        skipConfigurations = ["compileOnly", "annotationProcessor", "testCompileOnly", "testAnnotationProcessor"]
+    }
+
+    tasks.named("jacocoTestReport") {
+        dependsOn tasks.named("test")
+        reports {
+            xml.required = true
+            html.required = true
+        }
+    }
+}

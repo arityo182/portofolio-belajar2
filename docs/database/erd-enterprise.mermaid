@@ -1,0 +1,352 @@
+erDiagram
+    %% ===================== MVP RELATIONSHIPS =====================
+    users ||--o{ user_roles : "has"
+    roles ||--o{ user_roles : "assigned_to"
+    users ||--o{ refresh_tokens : "owns"
+    users ||--|| borrower_profiles : "has"
+    borrower_profiles ||--o{ loan_applications : "submits"
+    loan_products ||--o{ loan_applications : "used_in"
+    users |o--o{ loan_applications : "reviews"
+    loan_applications ||--|| credit_scores : "scored_by"
+    borrower_profiles ||--o{ credit_scores : "evaluated_in"
+    loan_applications ||--|| loan_disbursements : "disbursed_via"
+    loan_applications ||--o{ loan_installments : "has"
+    loan_installments ||--o{ payments : "paid_by"
+    borrower_profiles ||--o{ payments : "makes"
+    users ||--o{ notifications : "receives"
+    users |o--o{ audit_logs : "triggers"
+
+    %% ================== ENTERPRISE RELATIONSHIPS =================
+    users ||--|| investor_profiles : "has"
+    investor_profiles ||--o{ investment_portfolios : "holds"
+    loan_applications ||--o{ investment_portfolios : "funded_by"
+    investor_profiles ||--o{ investment_transactions : "records"
+    loan_applications ||--o{ loan_collections : "collected_on"
+    users ||--o{ loan_collections : "handled_by"
+    users ||--o{ document_verifications : "submits"
+    users |o--o{ document_verifications : "verifies"
+    loan_applications ||--o{ loan_restructures : "restructured_by"
+    users |o--o{ loan_restructures : "approves"
+    users ||--o{ system_configurations : "updates"
+
+    %% ========================= MVP ENTITIES =====================
+    users {
+        UUID id PK
+        VARCHAR_255 email UK
+        VARCHAR_255 password_hash
+        VARCHAR_20 phone
+        ENUM status "ACTIVE|SUSPENDED|PENDING_VERIFICATION"
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+
+    roles {
+        SERIAL id PK
+        VARCHAR_50 name UK
+        TEXT description
+    }
+
+    user_roles {
+        UUID user_id PK,FK
+        INT role_id PK,FK
+        TIMESTAMP assigned_at
+    }
+
+    refresh_tokens {
+        UUID id PK
+        UUID user_id FK
+        VARCHAR_512 token_hash
+        TEXT device_info
+        TIMESTAMP expires_at
+        TIMESTAMP revoked_at
+        TIMESTAMP created_at
+    }
+
+    borrower_profiles {
+        UUID id PK
+        UUID user_id FK,UK
+        TEXT nik_encrypted
+        TEXT npwp_encrypted
+        VARCHAR_255 full_name
+        DATE date_of_birth
+        ENUM gender "M|F"
+        TEXT address
+        VARCHAR_100 city
+        VARCHAR_100 province
+        VARCHAR_100 bank_name
+        TEXT bank_account_encrypted
+        TEXT ktp_photo_url
+        TEXT selfie_photo_url
+        DECIMAL_15_2 income_monthly
+        VARCHAR_100 business_type
+        VARCHAR_255 business_name
+        BOOL is_verified "default false"
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+
+    loan_products {
+        SERIAL id PK
+        VARCHAR_100 name
+        DECIMAL_15_2 min_amount
+        DECIMAL_15_2 max_amount
+        DECIMAL_5_2 interest_rate_annual
+        INT min_tenor_months
+        INT max_tenor_months
+        BOOL is_active "default true"
+        TIMESTAMP created_at
+    }
+
+    loan_applications {
+        UUID id PK
+        UUID borrower_id FK
+        INT loan_product_id FK
+        DECIMAL_15_2 amount
+        INT tenor_months
+        TEXT purpose
+        ENUM status "PENDING|SCORING|UNDER_REVIEW|APPROVED|REJECTED|DISBURSED|ACTIVE|COMPLETED|DEFAULT"
+        UUID reviewer_id FK "nullable"
+        TEXT rejection_reason
+        TIMESTAMP submitted_at
+        TIMESTAMP reviewed_at
+        TIMESTAMP disbursed_at
+        TIMESTAMP completed_at
+        VARCHAR_100 idempotency_key UK
+        BIGINT version "optimistic lock, default 0"
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+
+    credit_scores {
+        UUID id PK
+        UUID loan_application_id FK,UK
+        UUID borrower_id FK
+        DECIMAL_5_2 score
+        ENUM risk_category "LOW|MEDIUM|HIGH"
+        ENUM approval_recommendation "APPROVE|REVIEW|REJECT"
+        JSONB features_json
+        VARCHAR_20 model_version
+        INT processing_time_ms
+        TIMESTAMP scored_at
+    }
+
+    loan_disbursements {
+        UUID id PK
+        UUID loan_application_id FK,UK
+        DECIMAL_15_2 amount
+        ENUM payment_gateway "MIDTRANS|XENDIT"
+        VARCHAR_255 external_transaction_id
+        ENUM status "PENDING|PROCESSING|COMPLETED|FAILED"
+        VARCHAR_100 idempotency_key UK
+        TIMESTAMP disbursed_at
+        TIMESTAMP created_at
+    }
+
+    loan_installments {
+        UUID id PK
+        UUID loan_application_id FK
+        INT installment_number
+        DATE due_date
+        DECIMAL_15_2 amount
+        DECIMAL_15_2 principal
+        DECIMAL_15_2 interest
+        ENUM status "PENDING|PAID|OVERDUE"
+        TIMESTAMP paid_at
+        TIMESTAMP created_at
+    }
+
+    payments {
+        UUID id PK
+        UUID loan_installment_id FK
+        UUID borrower_id FK
+        DECIMAL_15_2 amount
+        ENUM payment_gateway "MIDTRANS|XENDIT"
+        VARCHAR_255 external_transaction_id
+        JSONB webhook_payload
+        ENUM status "PENDING|SUCCESS|FAILED"
+        VARCHAR_100 idempotency_key UK
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+
+    notifications {
+        UUID id PK
+        UUID user_id FK
+        VARCHAR_200 title
+        TEXT body
+        ENUM type "LOAN_STATUS|PAYMENT|SYSTEM"
+        VARCHAR_100 reference_id
+        BOOL is_read "default false"
+        TIMESTAMP created_at
+    }
+
+    audit_logs {
+        UUID id PK
+        UUID user_id FK "nullable"
+        VARCHAR_100 action
+        VARCHAR_50 entity_type
+        VARCHAR_100 entity_id
+        JSONB old_value
+        JSONB new_value
+        INET ip_address
+        TEXT user_agent
+        TIMESTAMP created_at
+    }
+
+    idempotency_keys {
+        UUID id PK
+        VARCHAR_200 key UK
+        VARCHAR_50 service
+        ENUM status "PROCESSING|COMPLETED|FAILED"
+        JSONB response_json
+        TIMESTAMP created_at
+        TIMESTAMP expires_at
+    }
+
+    %% ===================== ENTERPRISE ENTITIES ==================
+    investor_profiles {
+        UUID id PK
+        UUID user_id FK,UK
+        ENUM risk_appetite "LOW|MEDIUM|HIGH"
+        DECIMAL_15_2 total_invested "default 0"
+        DECIMAL_15_2 available_balance "default 0"
+        DECIMAL_15_2 total_return "default 0"
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+
+    investment_portfolios {
+        UUID id PK
+        UUID investor_id FK
+        UUID loan_application_id FK
+        DECIMAL_15_2 amount_invested
+        DECIMAL_15_2 expected_return
+        DECIMAL_15_2 actual_return
+        ENUM status "ACTIVE|COMPLETED|DEFAULTED"
+        TIMESTAMP invested_at
+        TIMESTAMP created_at
+    }
+
+    investment_transactions {
+        UUID id PK
+        UUID investor_id FK
+        ENUM type "TOP_UP|INVEST|RETURN|WITHDRAW"
+        DECIMAL_15_2 amount
+        DECIMAL_15_2 balance_before
+        DECIMAL_15_2 balance_after
+        VARCHAR_100 reference_id
+        TEXT description
+        TIMESTAMP created_at
+    }
+
+    loan_collections {
+        UUID id PK
+        UUID loan_application_id FK
+        UUID collector_id FK
+        ENUM action "CALL|VISIT|LETTER|LEGAL"
+        TEXT notes
+        DATE contact_date
+        DATE next_action_date
+        TIMESTAMP created_at
+    }
+
+    document_verifications {
+        UUID id PK
+        UUID user_id FK
+        ENUM document_type "KTP|NPWP|SELFIE|BANK_STATEMENT|BUSINESS_LICENSE"
+        TEXT document_url
+        ENUM status "PENDING|VERIFIED|REJECTED"
+        UUID verified_by FK "nullable"
+        TIMESTAMP verified_at
+        TEXT rejection_reason
+        TIMESTAMP created_at
+    }
+
+    loan_restructures {
+        UUID id PK
+        UUID loan_application_id FK
+        INT old_tenor_remaining
+        INT new_tenor
+        DECIMAL_15_2 old_monthly_amount
+        DECIMAL_15_2 new_monthly_amount
+        TEXT reason
+        TIMESTAMP requested_at
+        UUID approved_by FK "nullable"
+        TIMESTAMP approved_at
+        ENUM status "PENDING|APPROVED|REJECTED"
+    }
+
+    system_configurations {
+        SERIAL id PK
+        VARCHAR_100 config_key UK
+        TEXT config_value
+        TEXT description
+        UUID updated_by FK
+        TIMESTAMP updated_at
+    }
+
+    webhook_events {
+        UUID id PK
+        ENUM source "MIDTRANS|XENDIT"
+        VARCHAR_100 event_type
+        JSONB payload
+        ENUM status "RECEIVED|PROCESSING|PROCESSED|FAILED"
+        INT retry_count "default 0"
+        TIMESTAMP processed_at
+        TIMESTAMP created_at
+    }
+
+%% =====================================================================
+%% RECOMMENDED INDEXES (not expressible in Mermaid erDiagram syntax)
+%% ---------------------------------------------------------------------
+%% MVP indexes are maintained in erd-mvp.mermaid. Below are the
+%% additional indexes for enterprise entities.
+%% =====================================================================
+%% investor_profiles
+%%   CREATE UNIQUE INDEX uq_investor_profiles_user_id ON investor_profiles(user_id);
+%%   CREATE INDEX idx_investor_profiles_risk_appetite ON investor_profiles(risk_appetite);
+%%
+%% investment_portfolios
+%%   CREATE INDEX idx_investment_portfolios_investor_id ON investment_portfolios(investor_id);
+%%   CREATE INDEX idx_investment_portfolios_loan_application_id ON investment_portfolios(loan_application_id);
+%%   CREATE INDEX idx_investment_portfolios_status ON investment_portfolios(status);
+%%   CREATE UNIQUE INDEX uq_investment_portfolios_investor_loan ON investment_portfolios(investor_id, loan_application_id);
+%%   CREATE INDEX idx_investment_portfolios_created_at ON investment_portfolios(created_at);
+%%
+%% investment_transactions
+%%   CREATE INDEX idx_investment_transactions_investor_id ON investment_transactions(investor_id);
+%%   CREATE INDEX idx_investment_transactions_type ON investment_transactions(type);
+%%   CREATE INDEX idx_investment_transactions_reference_id ON investment_transactions(reference_id);
+%%   CREATE INDEX idx_investment_transactions_created_at ON investment_transactions(created_at);
+%%
+%% loan_collections
+%%   CREATE INDEX idx_loan_collections_loan_application_id ON loan_collections(loan_application_id);
+%%   CREATE INDEX idx_loan_collections_collector_id ON loan_collections(collector_id);
+%%   CREATE INDEX idx_loan_collections_action ON loan_collections(action);
+%%   CREATE INDEX idx_loan_collections_next_action_date ON loan_collections(next_action_date);
+%%   CREATE INDEX idx_loan_collections_created_at ON loan_collections(created_at);
+%%
+%% document_verifications
+%%   CREATE INDEX idx_document_verifications_user_id ON document_verifications(user_id);
+%%   CREATE INDEX idx_document_verifications_verified_by ON document_verifications(verified_by);
+%%   CREATE INDEX idx_document_verifications_document_type ON document_verifications(document_type);
+%%   CREATE INDEX idx_document_verifications_status ON document_verifications(status);
+%%   CREATE INDEX idx_document_verifications_created_at ON document_verifications(created_at);
+%%
+%% loan_restructures
+%%   CREATE INDEX idx_loan_restructures_loan_application_id ON loan_restructures(loan_application_id);
+%%   CREATE INDEX idx_loan_restructures_approved_by ON loan_restructures(approved_by);
+%%   CREATE INDEX idx_loan_restructures_status ON loan_restructures(status);
+%%   CREATE INDEX idx_loan_restructures_requested_at ON loan_restructures(requested_at);
+%%
+%% system_configurations
+%%   CREATE UNIQUE INDEX uq_system_configurations_config_key ON system_configurations(config_key);
+%%   CREATE INDEX idx_system_configurations_updated_by ON system_configurations(updated_by);
+%%
+%% webhook_events
+%%   CREATE INDEX idx_webhook_events_source ON webhook_events(source);
+%%   CREATE INDEX idx_webhook_events_event_type ON webhook_events(event_type);
+%%   CREATE INDEX idx_webhook_events_status ON webhook_events(status);
+%%   CREATE INDEX idx_webhook_events_created_at ON webhook_events(created_at);
+%%   CREATE INDEX idx_webhook_events_processed_at ON webhook_events(processed_at);
+%% =====================================================================

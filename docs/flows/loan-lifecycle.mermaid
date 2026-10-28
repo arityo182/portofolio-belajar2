@@ -1,0 +1,45 @@
+%% FILE: docs/flows/loan-lifecycle.mermaid
+%% Platform Koperasi Digital P2P Lending - Loan Lifecycle State Machine
+%% Legend per transition: [Trigger | Actor | Kafka event published]
+stateDiagram-v2
+    [*] --> PENDING : Submit aplikasi pinjaman<br/>Actor: BORROWER<br/>Kafka: loan.application.created
+
+    PENDING --> SCORING : Trigger AI scoring otomatis<br/>Actor: SYSTEM<br/>Kafka: loan.scoring.requested
+
+    SCORING --> UNDER_REVIEW : Skor selesai dihitung<br/>Actor: SYSTEM (scoring-service)<br/>Kafka: loan.scoring.completed
+    SCORING --> UNDER_REVIEW : Fallback ML timeout/gagal<br/>Actor: SYSTEM<br/>Kafka: loan.scoring.completed (status=FALLBACK)
+
+    UNDER_REVIEW --> APPROVED : Reviewer approve (dapat override skor)<br/>Actor: REVIEWER<br/>Kafka: loan.application.approved
+    UNDER_REVIEW --> REJECTED : Reviewer reject (+rejection_reason)<br/>Actor: REVIEWER<br/>Kafka: loan.application.rejected
+
+    APPROVED --> DISBURSED : Pencairan via payment gateway sukses<br/>Actor: SYSTEM (payment-service)<br/>Kafka: payment.disbursement.initiated -> payment.disbursement.completed
+
+    DISBURSED --> ACTIVE : Jadwal cicilan dibuat, pinjaman aktif<br/>Actor: SYSTEM<br/>Kafka: loan.application.activated
+
+    ACTIVE --> ACTIVE : Pembayaran cicilan diterima<br/>Actor: BORROWER<br/>Kafka: payment.installment.received
+
+    ACTIVE --> COMPLETED : Seluruh cicilan PAID<br/>Actor: SYSTEM<br/>Kafka: loan.completed
+
+    ACTIVE --> DEFAULT : Tunggakan melewati ambang batas<br/>Actor: SYSTEM<br/>Kafka: loan.installment.overdue -> loan.defaulted
+
+    %% ---------------- Restructure path ----------------
+    ACTIVE --> RESTRUCTURE_REQUESTED : Ajukan restrukturisasi<br/>Actor: BORROWER<br/>Kafka: loan.restructure.requested
+    RESTRUCTURE_REQUESTED --> ACTIVE : Restrukturisasi disetujui (tenor/cicilan baru)<br/>Actor: REVIEWER<br/>Kafka: loan.restructure.approved
+    RESTRUCTURE_REQUESTED --> ACTIVE : Restrukturisasi ditolak (jadwal lama berlaku)<br/>Actor: REVIEWER<br/>Kafka: loan.restructure.rejected
+
+    REJECTED --> [*]
+    COMPLETED --> [*]
+    DEFAULT --> [*]
+
+    note right of SCORING
+        AI credit scoring:
+        scoring-service (FastAPI + TensorFlow)
+    end note
+    note right of UNDER_REVIEW
+        Reviewer dapat override
+        rekomendasi AI
+    end note
+    note right of DEFAULT
+        Memicu alur penagihan
+        (loan_collections)
+    end note

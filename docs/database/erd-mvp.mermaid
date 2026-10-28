@@ -1,0 +1,269 @@
+erDiagram
+    users ||--o{ user_roles : "has"
+    roles ||--o{ user_roles : "assigned_to"
+    users ||--o{ refresh_tokens : "owns"
+    users ||--|| borrower_profiles : "has"
+    borrower_profiles ||--o{ loan_applications : "submits"
+    loan_products ||--o{ loan_applications : "used_in"
+    users |o--o{ loan_applications : "reviews"
+    loan_applications ||--|| credit_scores : "scored_by"
+    borrower_profiles ||--o{ credit_scores : "evaluated_in"
+    loan_applications ||--|| loan_disbursements : "disbursed_via"
+    loan_applications ||--o{ loan_installments : "has"
+    loan_installments ||--o{ payments : "paid_by"
+    borrower_profiles ||--o{ payments : "makes"
+    users ||--o{ notifications : "receives"
+    users |o--o{ audit_logs : "triggers"
+
+    users {
+        UUID id PK
+        VARCHAR_255 email UK
+        VARCHAR_255 password_hash
+        VARCHAR_20 phone
+        ENUM status "ACTIVE|SUSPENDED|PENDING_VERIFICATION"
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+
+    roles {
+        SERIAL id PK
+        VARCHAR_50 name UK
+        TEXT description
+    }
+
+    user_roles {
+        UUID user_id PK,FK
+        INT role_id PK,FK
+        TIMESTAMP assigned_at
+    }
+
+    refresh_tokens {
+        UUID id PK
+        UUID user_id FK
+        VARCHAR_512 token_hash
+        TEXT device_info
+        TIMESTAMP expires_at
+        TIMESTAMP revoked_at
+        TIMESTAMP created_at
+    }
+
+    borrower_profiles {
+        UUID id PK
+        UUID user_id FK,UK
+        TEXT nik_encrypted
+        TEXT npwp_encrypted
+        VARCHAR_255 full_name
+        DATE date_of_birth
+        ENUM gender "M|F"
+        TEXT address
+        VARCHAR_100 city
+        VARCHAR_100 province
+        VARCHAR_100 bank_name
+        TEXT bank_account_encrypted
+        TEXT ktp_photo_url
+        TEXT selfie_photo_url
+        DECIMAL_15_2 income_monthly
+        VARCHAR_100 business_type
+        VARCHAR_255 business_name
+        BOOL is_verified "default false"
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+
+    loan_products {
+        SERIAL id PK
+        VARCHAR_100 name
+        DECIMAL_15_2 min_amount
+        DECIMAL_15_2 max_amount
+        DECIMAL_5_2 interest_rate_annual
+        INT min_tenor_months
+        INT max_tenor_months
+        BOOL is_active "default true"
+        TIMESTAMP created_at
+    }
+
+    loan_applications {
+        UUID id PK
+        UUID borrower_id FK
+        INT loan_product_id FK
+        DECIMAL_15_2 amount
+        INT tenor_months
+        TEXT purpose
+        ENUM status "PENDING|SCORING|UNDER_REVIEW|APPROVED|REJECTED|DISBURSED|ACTIVE|COMPLETED|DEFAULT"
+        UUID reviewer_id FK "nullable"
+        TEXT rejection_reason
+        TIMESTAMP submitted_at
+        TIMESTAMP reviewed_at
+        TIMESTAMP disbursed_at
+        TIMESTAMP completed_at
+        VARCHAR_100 idempotency_key UK
+        BIGINT version "optimistic lock, default 0"
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+
+    credit_scores {
+        UUID id PK
+        UUID loan_application_id FK,UK
+        UUID borrower_id FK
+        DECIMAL_5_2 score
+        ENUM risk_category "LOW|MEDIUM|HIGH"
+        ENUM approval_recommendation "APPROVE|REVIEW|REJECT"
+        JSONB features_json
+        VARCHAR_20 model_version
+        INT processing_time_ms
+        TIMESTAMP scored_at
+    }
+
+    loan_disbursements {
+        UUID id PK
+        UUID loan_application_id FK,UK
+        DECIMAL_15_2 amount
+        ENUM payment_gateway "MIDTRANS|XENDIT"
+        VARCHAR_255 external_transaction_id
+        ENUM status "PENDING|PROCESSING|COMPLETED|FAILED"
+        VARCHAR_100 idempotency_key UK
+        TIMESTAMP disbursed_at
+        TIMESTAMP created_at
+    }
+
+    loan_installments {
+        UUID id PK
+        UUID loan_application_id FK
+        INT installment_number
+        DATE due_date
+        DECIMAL_15_2 amount
+        DECIMAL_15_2 principal
+        DECIMAL_15_2 interest
+        ENUM status "PENDING|PAID|OVERDUE"
+        TIMESTAMP paid_at
+        TIMESTAMP created_at
+    }
+
+    payments {
+        UUID id PK
+        UUID loan_installment_id FK
+        UUID borrower_id FK
+        DECIMAL_15_2 amount
+        ENUM payment_gateway "MIDTRANS|XENDIT"
+        VARCHAR_255 external_transaction_id
+        JSONB webhook_payload
+        ENUM status "PENDING|SUCCESS|FAILED"
+        VARCHAR_100 idempotency_key UK
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+
+    notifications {
+        UUID id PK
+        UUID user_id FK
+        VARCHAR_200 title
+        TEXT body
+        ENUM type "LOAN_STATUS|PAYMENT|SYSTEM"
+        VARCHAR_100 reference_id
+        BOOL is_read "default false"
+        TIMESTAMP created_at
+    }
+
+    audit_logs {
+        UUID id PK
+        UUID user_id FK "nullable"
+        VARCHAR_100 action
+        VARCHAR_50 entity_type
+        VARCHAR_100 entity_id
+        JSONB old_value
+        JSONB new_value
+        INET ip_address
+        TEXT user_agent
+        TIMESTAMP created_at
+    }
+
+    idempotency_keys {
+        UUID id PK
+        VARCHAR_200 key UK
+        VARCHAR_50 service
+        ENUM status "PROCESSING|COMPLETED|FAILED"
+        JSONB response_json
+        TIMESTAMP created_at
+        TIMESTAMP expires_at
+    }
+
+%% =====================================================================
+%% RECOMMENDED INDEXES (not expressible in Mermaid erDiagram syntax)
+%% =====================================================================
+%% users
+%%   CREATE UNIQUE INDEX uq_users_email ON users(email);
+%%   CREATE INDEX idx_users_status ON users(status);
+%%   CREATE INDEX idx_users_created_at ON users(created_at);
+%%
+%% roles
+%%   CREATE UNIQUE INDEX uq_roles_name ON roles(name);
+%%
+%% user_roles
+%%   PRIMARY KEY (user_id, role_id)
+%%   CREATE INDEX idx_user_roles_role_id ON user_roles(role_id);
+%%
+%% refresh_tokens
+%%   CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
+%%   CREATE INDEX idx_refresh_tokens_token_hash ON refresh_tokens(token_hash);
+%%   CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
+%%
+%% borrower_profiles
+%%   CREATE UNIQUE INDEX uq_borrower_profiles_user_id ON borrower_profiles(user_id);
+%%   CREATE INDEX idx_borrower_profiles_is_verified ON borrower_profiles(is_verified);
+%%   CREATE INDEX idx_borrower_profiles_created_at ON borrower_profiles(created_at);
+%%
+%% loan_products
+%%   CREATE INDEX idx_loan_products_is_active ON loan_products(is_active);
+%%
+%% loan_applications
+%%   CREATE INDEX idx_loan_applications_borrower_id ON loan_applications(borrower_id);
+%%   CREATE INDEX idx_loan_applications_loan_product_id ON loan_applications(loan_product_id);
+%%   CREATE INDEX idx_loan_applications_reviewer_id ON loan_applications(reviewer_id);
+%%   CREATE INDEX idx_loan_applications_status ON loan_applications(status);
+%%   CREATE UNIQUE INDEX uq_loan_applications_idempotency_key ON loan_applications(idempotency_key);
+%%   CREATE INDEX idx_loan_applications_created_at ON loan_applications(created_at);
+%%
+%% credit_scores
+%%   CREATE UNIQUE INDEX uq_credit_scores_loan_application_id ON credit_scores(loan_application_id);
+%%   CREATE INDEX idx_credit_scores_borrower_id ON credit_scores(borrower_id);
+%%   CREATE INDEX idx_credit_scores_risk_category ON credit_scores(risk_category);
+%%   CREATE INDEX idx_credit_scores_scored_at ON credit_scores(scored_at);
+%%
+%% loan_disbursements
+%%   CREATE UNIQUE INDEX uq_loan_disbursements_loan_application_id ON loan_disbursements(loan_application_id);
+%%   CREATE UNIQUE INDEX uq_loan_disbursements_idempotency_key ON loan_disbursements(idempotency_key);
+%%   CREATE INDEX idx_loan_disbursements_status ON loan_disbursements(status);
+%%   CREATE INDEX idx_loan_disbursements_external_transaction_id ON loan_disbursements(external_transaction_id);
+%%
+%% loan_installments
+%%   CREATE INDEX idx_loan_installments_loan_application_id ON loan_installments(loan_application_id);
+%%   CREATE INDEX idx_loan_installments_status ON loan_installments(status);
+%%   CREATE INDEX idx_loan_installments_due_date ON loan_installments(due_date);
+%%   CREATE UNIQUE INDEX uq_loan_installments_app_number ON loan_installments(loan_application_id, installment_number);
+%%
+%% payments
+%%   CREATE INDEX idx_payments_loan_installment_id ON payments(loan_installment_id);
+%%   CREATE INDEX idx_payments_borrower_id ON payments(borrower_id);
+%%   CREATE INDEX idx_payments_status ON payments(status);
+%%   CREATE UNIQUE INDEX uq_payments_idempotency_key ON payments(idempotency_key);
+%%   CREATE INDEX idx_payments_external_transaction_id ON payments(external_transaction_id);
+%%   CREATE INDEX idx_payments_created_at ON payments(created_at);
+%%
+%% notifications
+%%   CREATE INDEX idx_notifications_user_id ON notifications(user_id);
+%%   CREATE INDEX idx_notifications_is_read ON notifications(is_read);
+%%   CREATE INDEX idx_notifications_type ON notifications(type);
+%%   CREATE INDEX idx_notifications_created_at ON notifications(created_at);
+%%
+%% audit_logs
+%%   CREATE INDEX idx_audit_logs_user_id ON audit_logs(user_id);
+%%   CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
+%%   CREATE INDEX idx_audit_logs_action ON audit_logs(action);
+%%   CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
+%%
+%% idempotency_keys
+%%   CREATE UNIQUE INDEX uq_idempotency_keys_key ON idempotency_keys(key);
+%%   CREATE INDEX idx_idempotency_keys_status ON idempotency_keys(status);
+%%   CREATE INDEX idx_idempotency_keys_expires_at ON idempotency_keys(expires_at);
+%% =====================================================================

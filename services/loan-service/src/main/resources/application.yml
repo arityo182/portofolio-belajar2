@@ -1,0 +1,122 @@
+server:
+  port: ${SERVER_PORT:8082}
+  shutdown: graceful
+  error:
+    include-message: never
+    include-stacktrace: never
+
+spring:
+  application:
+    name: loan-service
+  lifecycle:
+    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:30s}
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/koperasi?currentSchema=loan_schema}
+    username: ${DB_USERNAME:loan_user}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:30000}
+      pool-name: loan-service-pool
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        default_schema: ${DB_SCHEMA:loan_schema}
+    show-sql: false
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    locations: classpath:db/migration
+    schemas: ${DB_SCHEMA:loan_schema}
+    default-schema: ${DB_SCHEMA:loan_schema}
+    create-schemas: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      timeout: ${REDIS_TIMEOUT:2s}
+      lettuce:
+        pool:
+          max-active: ${REDIS_POOL_MAX_ACTIVE:16}
+          max-idle: ${REDIS_POOL_MAX_IDLE:8}
+          min-idle: ${REDIS_POOL_MIN_IDLE:2}
+          max-wait: ${REDIS_POOL_MAX_WAIT:2s}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:loan-service-group}
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
+      auto-startup: ${KAFKA_LISTENER_AUTO_STARTUP:true}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        spring.json.add.type.headers: false
+
+jwt:
+  secret: ${JWT_SECRET}
+  issuer: ${JWT_ISSUER:koperasi-auth}
+
+app:
+  service:
+    scoring-url: ${SCORING_SERVICE_URL:http://localhost:8083}
+    payment-url: ${PAYMENT_SERVICE_URL:http://localhost:8084}
+  loan:
+    default-overdue-days: ${LOAN_DEFAULT_OVERDUE_DAYS:90}
+    lock-ttl-seconds: ${LOAN_LOCK_TTL_SECONDS:10}
+    max-page-size: ${LOAN_MAX_PAGE_SIZE:100}
+    installment-method: ${LOAN_INSTALLMENT_METHOD:FLAT}
+    overdue-cron: ${LOAN_OVERDUE_CRON:0 5 0 * * *}
+    scheduler-zone: ${LOAN_SCHEDULER_ZONE:Asia/Jakarta}
+    overdue-batch-size: ${LOAN_OVERDUE_BATCH_SIZE:500}
+  kafka:
+    topics:
+      scoring-completed: ${KAFKA_TOPIC_SCORING_COMPLETED:loan.scoring.completed}
+  internal:
+    callback-token: ${INTERNAL_CALLBACK_TOKEN:}
+  notification:
+    websocket-allowed-origins: ${WEBSOCKET_ALLOWED_ORIGINS:http://localhost:3000,https://localhost}
+    fanout-channel: ${NOTIFICATION_FANOUT_CHANNEL:notifications:fanout}
+    redis-fanout-enabled: ${NOTIFICATION_REDIS_FANOUT:true}
+    sse-heartbeat-ms: ${NOTIFICATION_SSE_HEARTBEAT_MS:30000}
+    sse-timeout-ms: ${NOTIFICATION_SSE_TIMEOUT_MS:1800000}
+    max-page-size: ${NOTIFICATION_MAX_PAGE_SIZE:100}
+    loan-service-url: ${LOAN_SERVICE_URL:http://localhost:8082}
+    internal-token: ${INTERNAL_CALLBACK_TOKEN:}
+    kafka-topic-pattern: '${KAFKA_TOPIC_PATTERN:^(loan\.application\..*|loan\.status\.changed|loan\.defaulted|payment\..*|notification\.send\.requested)$}'
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:health,info,prometheus,metrics}
+  endpoint:
+    health:
+      probes:
+        enabled: ${MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED:true}
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: loan-service
+
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+    com.koperasi.loan: ${LOG_LEVEL_APP:INFO}
+    com.koperasi.notification: ${LOG_LEVEL_APP:INFO}
+    com.koperasi.reporting: ${LOG_LEVEL_APP:INFO}
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [traceId=%X{traceId:-}] [userId=%X{userId:-}] [serviceId=%X{serviceId:-}] %logger{36} - %msg%n"

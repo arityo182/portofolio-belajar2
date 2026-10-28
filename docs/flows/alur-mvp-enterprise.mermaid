@@ -1,0 +1,139 @@
+%% FILE: docs/flows/alur-mvp-enterprise.mermaid
+%% Platform Koperasi Digital P2P Lending - End-to-End Sequence
+%% Notation: ->> solid arrow = Sync REST | --) dashed arrow = Async Kafka event
+sequenceDiagram
+    autonumber
+    actor BR as Browser
+    participant FE as Frontend (Next.js)
+    participant NG as Nginx
+    participant GW as API-Gateway
+    participant AUTH as Auth-Service
+    participant LOAN as Loan-Service
+    participant SCORE as Scoring-Service (FastAPI)
+    participant PAY as Payment-Service
+    participant NOTIF as Notification-Service
+    participant K as Kafka
+    participant PG as PostgreSQL
+    participant RD as Redis
+    participant MID as Midtrans
+
+    %% ===================== 1. LOGIN (JWT) =====================
+    rect rgb(235, 245, 255)
+    note over BR,AUTH: 1. User Login (JWT)
+    BR->>FE: Input email + password
+    FE->>NG: POST /api/auth/login (HTTPS/TLS 1.3)
+    NG->>GW: forward
+    GW->>AUTH: POST /auth/login
+    AUTH->>PG: SELECT user by email
+    PG-->>AUTH: user + password_hash
+    AUTH->>AUTH: BCrypt.verify (cost 12)
+    AUTH->>RD: SET auth:refresh:{userId} (TTL 7d)
+    AUTH->>PG: INSERT audit_log (LOGIN_SUCCESS)
+    AUTH-->>GW: 200 {accessToken(15m), refreshToken(7d)}
+    GW-->>FE: 200 tokens
+    FE-->>BR: Login sukses + simpan token
+    end
+
+    %% ================ 2. APPLY LOAN (PENDING) ================
+    rect rgb(235, 255, 240)
+    note over BR,PG: 2. Apply Loan (idempotency check -> save PENDING)
+    BR->>FE: Submit form pengajuan pinjaman
+    FE->>GW: POST /api/loans/apply + Bearer + X-Idempotency-Key
+    GW->>GW: verify JWT + RBAC (BORROWER)
+    GW->>LOAN: POST /loans/apply
+    LOAN->>RD: SET pay:idem:{key} NX (idempotency check)
+    alt key sudah ada (COMPLETED)
+        LOAN-->>GW: 200 cached response (replay)
+    else key baru
+        LOAN->>PG: INSERT loan_application (status=PENDING, version=0)
+        LOAN--)K: publish loan.application.created
+        LOAN-->>GW: 201 {loanId, status=PENDING}
+    end
+    GW-->>FE: 201 PENDING
+    FE-->>BR: Aplikasi diterima (PENDING)
+    end
+
+    %% ================ 3. AI SCORING (SCORING -> UNDER_REVIEW) ================
+    rect rgb(255, 250, 235)
+    note over LOAN,SCORE: 3. AI Scoring (Kafka -> FastAPI -> update status)
+    LOAN--)K: publish loan.scoring.requested
+    K--)SCORE: consume loan.scoring.requested
+    SCORE->>LOAN: GET /loans/{id}/features (sync REST)
+    LOAN-->>SCORE: 200 feature payload
+    SCORE->>SCORE: TensorFlow inference (score, risk, recommendation)
+    SCORE->>PG: INSERT credit_scores (scoring_schema)
+    SCORE--)K: publish loan.scoring.completed
+    K--)LOAN: consume loan.scoring.completed
+    LOAN->>PG: UPDATE loan_application PENDING->SCORING->UNDER_REVIEW
+    LOAN--)K: publish loan.application.under_review
+    K--)NOTIF: consume loan.application.under_review
+    NOTIF->>BR: WebSocket push "Pinjaman sedang direview"
+    end
+
+    %% ================ 4. REVIEWER APPROVE (UNDER_REVIEW -> APPROVED) ================
+    rect rgb(245, 240, 255)
+    note over BR,PG: 4. Reviewer Approve
+    BR->>FE: Reviewer buka aplikasi (role REVIEWER)
+    FE->>GW: POST /api/loans/{id}/approve + Bearer
+    GW->>GW: verify JWT + RBAC (REVIEWER)
+    GW->>LOAN: POST /loans/{id}/approve
+    LOAN->>PG: UPDATE status UNDER_REVIEW->APPROVED (optimistic lock)
+    LOAN->>PG: INSERT audit_log (APPROVE, reviewer_id)
+    LOAN--)K: publish loan.application.approved
+    LOAN-->>GW: 200 APPROVED
+    GW-->>FE: 200
+    K--)NOTIF: consume loan.application.approved
+    NOTIF->>BR: WebSocket push "Pinjaman disetujui"
+    end
+
+    %% ================ 5. DISBURSEMENT (-> DISBURSED -> ACTIVE) ================
+    rect rgb(255, 240, 245)
+    note over LOAN,MID: 5. Disbursement via Midtrans (webhook)
+    K--)PAY: consume loan.application.approved
+    PAY->>RD: SET lock:disburse:{loanId} (distributed lock)
+    PAY->>PG: INSERT loan_disbursement (PENDING, idempotency_key)
+    PAY--)K: publish payment.disbursement.initiated
+    PAY->>MID: POST /disbursements (sync REST)
+    MID-->>PAY: 200 ACCEPTED (external_transaction_id)
+    MID->>GW: POST /api/webhooks/midtrans (callback)
+    GW->>PAY: forward webhook
+    PAY->>PAY: verify signature
+    PAY->>PG: UPDATE disbursement COMPLETED
+    PAY--)K: publish payment.disbursement.completed
+    PAY->>RD: DEL lock:disburse:{loanId}
+    K--)LOAN: consume payment.disbursement.completed
+    LOAN->>PG: UPDATE status APPROVED->DISBURSED->ACTIVE
+    LOAN->>PG: INSERT loan_installments (jadwal cicilan)
+    LOAN--)K: publish loan.application.activated
+    K--)NOTIF: consume events
+    NOTIF->>BR: WebSocket push "Dana cair, pinjaman ACTIVE"
+    end
+
+    %% ================ 6. BAYAR CICILAN (installment PAID) ================
+    rect rgb(240, 255, 255)
+    note over BR,MID: 6. Bayar Cicilan
+    BR->>FE: Bayar cicilan #n
+    FE->>GW: POST /api/payments + Bearer + X-Idempotency-Key
+    GW->>PAY: POST /payments
+    PAY->>RD: SET pay:idem:{key} NX
+    PAY->>PG: INSERT payment (PENDING)
+    PAY->>MID: create payment (sync REST)
+    MID->>GW: POST /api/webhooks/midtrans (payment success)
+    GW->>PAY: forward webhook
+    PAY->>PAY: verify signature
+    PAY->>PG: UPDATE payment SUCCESS, installment PAID
+    PAY--)K: publish payment.installment.received
+    K--)LOAN: consume payment.installment.received
+    LOAN->>PG: cek sisa cicilan
+    alt semua cicilan PAID
+        LOAN->>PG: UPDATE status ACTIVE->COMPLETED
+        LOAN--)K: publish loan.completed
+    end
+    K--)NOTIF: consume payment.installment.received
+    NOTIF->>BR: WebSocket push "Pembayaran cicilan diterima"
+    end
+
+    %% ================ 7. REALTIME NOTIFICATION (SSE fallback) ================
+    note over NOTIF,BR: 7. Notifikasi real-time di setiap state change<br/>WebSocket utama, SSE sebagai fallback
+    NOTIF->>PG: INSERT notification (persist)
+    NOTIF-->>BR: SSE stream (fallback bila WebSocket putus)

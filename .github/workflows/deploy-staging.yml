@@ -1,0 +1,40 @@
+name: Deploy Staging
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to staging
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.30.0
+      - name: Configure kubectl
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.STAGING_KUBE_CONFIG }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+      - name: Apply manifests
+        run: kubectl apply -k k8s
+      - name: Wait for rollout
+        run: |
+          for service in auth-service loan-service scoring-service payment-service frontend; do
+            kubectl -n koperasi rollout status "deployment/${service}" --timeout=300s
+          done
+      - name: Smoke test
+        run: |
+          curl -fsS --retry 10 --retry-delay 5 https://staging.koperasi.example.com/healthz
+          curl -fsS --retry 10 --retry-delay 5 https://staging.koperasi.example.com/login >/dev/null

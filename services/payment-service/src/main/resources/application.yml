@@ -1,0 +1,118 @@
+server:
+  port: ${SERVER_PORT:8084}
+  shutdown: graceful
+  error:
+    include-message: never
+    include-stacktrace: never
+
+spring:
+  application:
+    name: payment-service
+  lifecycle:
+    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:30s}
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/koperasi?currentSchema=payment_schema}
+    username: ${DB_USERNAME:payment_user}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:30000}
+      pool-name: payment-service-pool
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        default_schema: ${DB_SCHEMA:payment_schema}
+    show-sql: false
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    locations: classpath:db/migration
+    schemas: ${DB_SCHEMA:payment_schema}
+    default-schema: ${DB_SCHEMA:payment_schema}
+    create-schemas: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      timeout: ${REDIS_TIMEOUT:2s}
+      lettuce:
+        pool:
+          max-active: ${REDIS_POOL_MAX_ACTIVE:16}
+          max-idle: ${REDIS_POOL_MAX_IDLE:8}
+          min-idle: ${REDIS_POOL_MIN_IDLE:2}
+          max-wait: ${REDIS_POOL_MAX_WAIT:2s}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        spring.json.add.type.headers: false
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:payment-service-group}
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.koperasi.*
+
+jwt:
+  secret: ${JWT_SECRET}
+  issuer: ${JWT_ISSUER:koperasi-auth}
+
+app:
+  payment:
+    idempotency-ttl-hours: ${IDEMPOTENCY_TTL_HOURS:24}
+    lock-ttl-seconds: ${PAYMENT_LOCK_TTL_SECONDS:15}
+    retry-max-attempts: ${PAYMENT_RETRY_MAX_ATTEMPTS:3}
+    retry-base-backoff-ms: ${PAYMENT_RETRY_BASE_BACKOFF_MS:1000}
+    loan-service-url: ${LOAN_SERVICE_URL:http://localhost:8082}
+    internal-token: ${INTERNAL_CALLBACK_TOKEN:}
+    loan-connect-timeout-ms: ${LOAN_CONNECT_TIMEOUT_MS:2000}
+    loan-read-timeout-ms: ${LOAN_READ_TIMEOUT_MS:3000}
+    midtrans:
+      server-key: ${MIDTRANS_SERVER_KEY:}
+      client-key: ${MIDTRANS_CLIENT_KEY:}
+      snap-base-url: ${MIDTRANS_SNAP_BASE_URL:https://app.sandbox.midtrans.com}
+      api-base-url: ${MIDTRANS_API_BASE_URL:https://api.sandbox.midtrans.com}
+      production: ${MIDTRANS_IS_PRODUCTION:false}
+      beneficiary-name: ${MIDTRANS_BENEFICIARY_NAME:Koperasi Digital}
+      beneficiary-account: ${MIDTRANS_BENEFICIARY_ACCOUNT:0000000000}
+      beneficiary-bank: ${MIDTRANS_BENEFICIARY_BANK:BCA}
+    xendit:
+      api-key: ${XENDIT_API_KEY:}
+      base-url: ${XENDIT_BASE_URL:https://api.xendit.co}
+      webhook-token: ${XENDIT_WEBHOOK_TOKEN:}
+      bank-code: ${XENDIT_BANK_CODE:BCA}
+      account-holder-name: ${XENDIT_ACCOUNT_HOLDER_NAME:Koperasi Digital}
+      account-number: ${XENDIT_ACCOUNT_NUMBER:0000000000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:health,info,prometheus,metrics}
+  endpoint:
+    health:
+      probes:
+        enabled: ${MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED:true}
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: payment-service
+
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+    com.koperasi.payment: ${LOG_LEVEL_APP:INFO}
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [traceId=%X{traceId:-}] [userId=%X{userId:-}] [serviceId=%X{serviceId:-}] %logger{36} - %msg%n"

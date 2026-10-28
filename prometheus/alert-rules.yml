@@ -1,0 +1,56 @@
+groups:
+  - name: koperasi-availability
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} tidak tersedia"
+          description: "Prometheus tidak dapat melakukan scrape ke {{ $labels.instance }} selama 2 menit."
+      - alert: HighHttpErrorRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) by (job)
+          /
+          clamp_min(sum(rate(http_server_requests_seconds_count[5m])) by (job), 0.001)
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tingkat error 5xx tinggi pada {{ $labels.job }}"
+          description: "Rasio respons 5xx melebihi 5% selama 5 menit."
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_server_requests_seconds_bucket[5m])) by (le, job)
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latensi p95 tinggi pada {{ $labels.job }}"
+          description: "Latensi p95 melebihi 1 detik selama 5 menit."
+      - alert: JvmHeapPressure
+        expr: |
+          sum(jvm_memory_used_bytes{area="heap"}) by (job)
+          /
+          clamp_min(sum(jvm_memory_max_bytes{area="heap"}) by (job), 1)
+          > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tekanan heap JVM tinggi pada {{ $labels.job }}"
+          description: "Penggunaan heap melebihi 90% selama 10 menit."
+  - name: koperasi-business
+    rules:
+      - alert: NoDisbursementToday
+        expr: increase(koperasi_loan_disbursed_total[24h]) == 0
+        for: 1h
+        labels:
+          severity: info
+        annotations:
+          summary: "Tidak ada pencairan dalam 24 jam terakhir"

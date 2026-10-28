@@ -1,0 +1,23 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
+    repositories {
+        mavenCentral()
+    }
+}
+
+rootProject.name = "koperasi"
+
+include "auth-service"
+include "loan-service"
+include "payment-service"
+
+project(":auth-service").projectDir = file("services/auth-service")
+project(":loan-service").projectDir = file("services/loan-service")
+project(":payment-service").projectDir = file("services/payment-service")

@@ -1,0 +1,49 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag (e.g. v1.0.0 or sha-abc1234)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.30.0
+      - name: Configure kubectl
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.PRODUCTION_KUBE_CONFIG }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+      - name: Update images
+        run: |
+          TAG="${{ inputs.image_tag }}"
+          OWNER="${{ github.repository_owner }}"
+          for service in auth-service loan-service scoring-service payment-service frontend; do
+            kubectl -n koperasi set image "deployment/${service}" "${service}=ghcr.io/${OWNER}/koperasi-${service}:${TAG}"
+          done
+      - name: Wait for rollout
+        run: |
+          for service in auth-service loan-service scoring-service payment-service frontend; do
+            kubectl -n koperasi rollout status "deployment/${service}" --timeout=600s
+          done
+      - name: Verify public endpoints
+        run: |
+          curl -fsS --retry 10 --retry-delay 5 https://koperasi.example.com/healthz
+          curl -fsS --retry 10 --retry-delay 5 https://koperasi.example.com/login >/dev/null
+          curl -fsS --retry 10 --retry-delay 5 https://koperasi.example.com/api/v1/loans/products >/dev/null

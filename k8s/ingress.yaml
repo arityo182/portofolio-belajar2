@@ -1,0 +1,107 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: koperasi
+  namespace: koperasi
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://koperasi.example.com"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "Authorization,Content-Type,Idempotency-Key,X-Correlation-Id"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location ^~ /api/v1/loans/internal/ {
+        return 404;
+      }
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Strict-Transport-Security: max-age=63072000; includeSubDomains; preload";
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - koperasi.example.com
+      secretName: koperasi-tls
+  rules:
+    - host: koperasi.example.com
+      http:
+        paths:
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: loan-service
+                port:
+                  number: 8082
+          - path: /api/v1/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 8081
+          - path: /api/v1/admin/users
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 8081
+          - path: /api/v1/borrowers
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 8081
+          - path: /api/v1/loans
+            pathType: Prefix
+            backend:
+              service:
+                name: loan-service
+                port:
+                  number: 8082
+          - path: /api/v1/notifications
+            pathType: Prefix
+            backend:
+              service:
+                name: loan-service
+                port:
+                  number: 8082
+          - path: /api/v1/reports
+            pathType: Prefix
+            backend:
+              service:
+                name: loan-service
+                port:
+                  number: 8082
+          - path: /api/v1/payments
+            pathType: Prefix
+            backend:
+              service:
+                name: payment-service
+                port:
+                  number: 8084
+          - path: /api/v1/scoring
+            pathType: Prefix
+            backend:
+              service:
+                name: scoring-service
+                port:
+                  number: 8083
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000
